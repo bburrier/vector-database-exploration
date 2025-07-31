@@ -7,9 +7,12 @@ let points = [];
 let labels = [];
 let pointMeshes = []; // Separate array for actual point meshes (for raycaster)
 let highlightedPoints = new Set();
+let dataBounds = { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } };
+let currentDimension = 3;
+let radarChart = null;
 
 // Default camera position constant
-const DEFAULT_CAMERA_POSITION = [2.1, 0.1, 3.8];
+const DEFAULT_CAMERA_POSITION = [1.6, 0.1, 2.9];
 
 // API base URL - automatically detect environment
 // If accessed via ngrok (HTTPS), use relative paths
@@ -18,6 +21,10 @@ const API_BASE = window.location.protocol === 'https:' ? '/api' : 'http://localh
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
+    // Ensure we start with 3D visualization
+    currentDimension = 3;
+    document.getElementById('dimensionToggle').value = '3';
+    
     initializeVisualization();
     loadVectors();
     loadStats();
@@ -31,6 +38,57 @@ document.addEventListener('DOMContentLoaded', function() {
         if (e.key === 'Enter') searchVectors();
     });
 });
+
+// Change visualization dimension
+async function changeDimension() {
+    const newDimension = parseInt(document.getElementById('dimensionToggle').value);
+    
+    if (newDimension === currentDimension) {
+        return; // No change needed
+    }
+    
+    try {
+        const response = await fetch(`${API_BASE}/change-dimension`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ dimension: newDimension })
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            currentDimension = newDimension;
+            
+            // Reload vectors with new dimension
+            await loadVectors();
+            
+            // Update visualization based on new dimension
+            if (currentDimension === 3) {
+                show3DVisualization();
+            } else {
+                showRadarChart();
+            }
+            
+            // Re-trigger search if there's an active search
+            const searchQuery = document.getElementById('searchQuery').value.trim();
+            if (searchQuery && searchResults.length > 0) {
+                console.log('Re-triggering search with new dimension...');
+                await searchVectors();
+            }
+            
+            // Update stats
+            await loadStats();
+            
+            console.log(`Dimension changed to ${newDimension}`);
+        } else {
+            console.error('Failed to change dimension:', data.error);
+        }
+    } catch (error) {
+        console.error('Error changing dimension:', error);
+    }
+}
 
 // Initialize Three.js 3D visualization
 function initializeVisualization() {
@@ -95,6 +153,60 @@ function initializeVisualization() {
     animate();
 }
 
+// Calculate data boundaries for all vectors
+function calculateDataBounds() {
+    const allVectors = [...vectors];
+    if (currentQueryVector) {
+        allVectors.push(currentQueryVector);
+    }
+    
+    if (allVectors.length === 0) {
+        // Default bounds if no data
+        dataBounds = { min: { x: -1, y: -1, z: -1 }, max: { x: 1, y: 1, z: 1 } };
+        return;
+    }
+    
+    // Initialize bounds with first vector
+    const firstVector = allVectors[0];
+    dataBounds = {
+        min: { x: firstVector.x, y: firstVector.y, z: firstVector.z },
+        max: { x: firstVector.x, y: firstVector.y, z: firstVector.z }
+    };
+    
+    // Find min/max for all vectors
+    allVectors.forEach(vector => {
+        dataBounds.min.x = Math.min(dataBounds.min.x, vector.x);
+        dataBounds.min.y = Math.min(dataBounds.min.y, vector.y);
+        dataBounds.min.z = Math.min(dataBounds.min.z, vector.z);
+        dataBounds.max.x = Math.max(dataBounds.max.x, vector.x);
+        dataBounds.max.y = Math.max(dataBounds.max.y, vector.y);
+        dataBounds.max.z = Math.max(dataBounds.max.z, vector.z);
+    });
+    
+    // Add some padding to the bounds
+    const padding = 0.1; // 10% padding
+    const xRange = dataBounds.max.x - dataBounds.min.x;
+    const yRange = dataBounds.max.y - dataBounds.min.y;
+    const zRange = dataBounds.max.z - dataBounds.min.z;
+    
+    dataBounds.min.x -= xRange * padding;
+    dataBounds.min.y -= yRange * padding;
+    dataBounds.min.z -= zRange * padding;
+    dataBounds.max.x += xRange * padding;
+    dataBounds.max.y += yRange * padding;
+    dataBounds.max.z += zRange * padding;
+    
+    // Debug: log the calculated bounds
+    console.log('Data bounds calculated:', dataBounds);
+}
+
+// Normalize a value to -1 to 1 range based on data bounds
+function normalizeValue(value, axis) {
+    const range = dataBounds.max[axis] - dataBounds.min[axis];
+    if (range === 0) return 0;
+    return ((value - dataBounds.min[axis]) / range) * 2 - 1;
+}
+
 // Animation loop
 function animate() {
     requestAnimationFrame(animate);
@@ -107,8 +219,31 @@ function animate() {
 
 // Add bounding cube for perspective
 function addGridLines() {
-    // Create bounding cube
-    const cubeSize = 3;
+    // Create bounding cube based on data bounds
+    // Use a default size if no data is loaded yet
+    const cubeSize = 2; // Default size for -1 to 1 range
+    const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    const cubeMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x444444, 
+        transparent: true, 
+        opacity: 0.1,
+        wireframe: true
+    });
+    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    scene.add(cube);
+}
+
+// Update bounding cube based on current data bounds
+function updateBoundingCube() {
+    // Remove existing cube
+    scene.children = scene.children.filter(child => 
+        !(child instanceof THREE.Mesh && child.geometry instanceof THREE.BoxGeometry)
+    );
+    
+    // Always create a cube that fits the normalized coordinate system (-1 to 1)
+    // Since we normalize all points to -1 to 1 range, the cube should be 2x2x2
+    const cubeSize = 2.2; // Slightly larger than the -1 to 1 range for padding
+    
     const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
     const cubeMaterial = new THREE.MeshBasicMaterial({ 
         color: 0x444444, 
@@ -202,9 +337,9 @@ async function loadVectors() {
         
         vectors = data.vectors.map(vector => ({
             id: vector.id,
-            x: vector.vector[0] * 150 + 250, // Scale and center - reduced scale
-            y: vector.vector[1] * 150 + 250,
-            z: vector.vector[2] * 150 + 250,
+            x: vector.vector[0], // Use raw vector values directly
+            y: vector.vector[1],
+            z: vector.vector[2],
             vector: vector.vector,
             text: vector.text,
             type: vector.type,
@@ -213,14 +348,189 @@ async function loadVectors() {
             isHighlighted: false
         }));
         
-        updateVisualization();
+        // Update visualization based on current mode
+        if (currentDimension === 3) {
+            updateVisualization();
+        } else {
+            showRadarChart();
+        }
     } catch (error) {
         console.error('Error loading vectors:', error);
     }
 }
 
+// Show 3D visualization
+function show3DVisualization() {
+    const container = document.getElementById('visualization');
+    container.innerHTML = ''; // Clear container
+    
+    // Reinitialize Three.js
+    initializeVisualization();
+    updateVisualization();
+}
+
+// Show radar chart visualization
+function showRadarChart() {
+    const container = document.getElementById('visualization');
+    container.innerHTML = ''; // Clear container
+    
+    // Create SVG for radar chart
+    const margin = { top: 20, right: 20, bottom: 20, left: 20 };
+    const width = container.clientWidth - margin.left - margin.right;
+    const height = container.clientHeight - margin.top - margin.bottom;
+    
+    const svg = d3.select(container)
+        .append('svg')
+        .attr('width', width + margin.left + margin.right)
+        .attr('height', height + margin.top + margin.bottom)
+        .append('g')
+        .attr('transform', `translate(${margin.left + width/2},${margin.top + height/2})`);
+    
+    // Calculate radius based on container size
+    const radius = Math.min(width, height) / 2 - 40;
+    
+    // Create radar chart
+    createRadarChart(svg, radius);
+}
+
+// Create radar chart
+function createRadarChart(svg, radius) {
+    const allVectors = [...vectors];
+    if (currentQueryVector) {
+        allVectors.push(currentQueryVector);
+    }
+    
+    if (allVectors.length === 0) return;
+    
+    // Get the number of dimensions from the first vector
+    const numDimensions = allVectors[0].vector.length;
+    
+    // Create angle scale
+    const angleScale = d3.scalePoint()
+        .domain(d3.range(numDimensions))
+        .range([0, 2 * Math.PI]);
+    
+    // Calculate bounds for each dimension
+    const dimensionBounds = [];
+    for (let i = 0; i < numDimensions; i++) {
+        const values = allVectors.map(v => v.vector[i]);
+        dimensionBounds.push({
+            min: Math.min(...values),
+            max: Math.max(...values)
+        });
+    }
+    
+    // Create radius scale for each dimension
+    const radiusScales = dimensionBounds.map(bounds => 
+        d3.scaleLinear()
+            .domain([bounds.min, bounds.max])
+            .range([0, radius])
+    );
+    
+    // Draw grid circles
+    const gridLevels = 5;
+    for (let i = 1; i <= gridLevels; i++) {
+        const gridRadius = (radius / gridLevels) * i;
+        svg.append('circle')
+            .attr('cx', 0)
+            .attr('cy', 0)
+            .attr('r', gridRadius)
+            .attr('fill', 'none')
+            .attr('stroke', '#ddd')
+            .attr('stroke-width', 1);
+    }
+    
+    // Draw dimension axes
+    for (let i = 0; i < numDimensions; i++) {
+        const angle = angleScale(i);
+        const x = Math.cos(angle - Math.PI/2) * radius;
+        const y = Math.sin(angle - Math.PI/2) * radius;
+        
+        // Draw axis line
+        svg.append('line')
+            .attr('x1', 0)
+            .attr('y1', 0)
+            .attr('x2', x)
+            .attr('y2', y)
+            .attr('stroke', '#999')
+            .attr('stroke-width', 1);
+        
+        // Add dimension label
+        svg.append('text')
+            .attr('x', Math.cos(angle - Math.PI/2) * (radius + 20))
+            .attr('y', Math.sin(angle - Math.PI/2) * (radius + 20))
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('font-size', '12px')
+            .attr('fill', '#666')
+            .text(`D${i+1}`);
+    }
+    
+    // Draw vector polygons
+    allVectors.forEach((vector, index) => {
+        const points = [];
+        for (let i = 0; i < numDimensions; i++) {
+            const angle = angleScale(i);
+            const value = vector.vector[i];
+            const r = radiusScales[i](value);
+            const x = Math.cos(angle - Math.PI/2) * r;
+            const y = Math.sin(angle - Math.PI/2) * r;
+            points.push([x, y]);
+        }
+        
+        // Create polygon
+        const polygon = svg.append('polygon')
+            .attr('points', points.map(p => p.join(',')).join(' '))
+            .attr('fill', vector.isQueryVector ? '#a081d9' : '#000')
+            .attr('stroke', vector.isQueryVector ? '#a081d9' : '#000')
+            .attr('stroke-width', 2)
+            .attr('fill-opacity', vector.isQueryVector ? 0.3 : 0.1)
+            .attr('stroke-opacity', 0.8);
+        
+        // Add hover effects
+        polygon.on('mouseover', function() {
+            d3.select(this).attr('fill-opacity', 0.5);
+            showVectorDetails(null, vector);
+        })
+        .on('mouseout', function() {
+            d3.select(this).attr('fill-opacity', vector.isQueryVector ? 0.3 : 0.1);
+        });
+        
+        // Add vector label if it's query vector or highlighted
+        if (vector.isQueryVector || vector.isHighlighted) {
+            const centroid = calculatePolygonCentroid(points);
+            svg.append('text')
+                .attr('x', centroid[0])
+                .attr('y', centroid[1])
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .attr('font-size', '10px')
+                .attr('fill', vector.isQueryVector ? '#a081d9' : '#22bb11')
+                .text(vector.text.substring(0, 15));
+        }
+    });
+}
+
+// Calculate centroid of polygon
+function calculatePolygonCentroid(points) {
+    const x = points.reduce((sum, p) => sum + p[0], 0) / points.length;
+    const y = points.reduce((sum, p) => sum + p[1], 0) / points.length;
+    return [x, y];
+}
+
 // Update the 3D visualization
 function updateVisualization() {
+    // If we're in radar chart mode, don't update 3D
+    if (currentDimension !== 3) {
+        return;
+    }
+    
+    // Calculate data bounds first
+    calculateDataBounds();
+    
+    // Update bounding cube based on new data bounds
+    updateBoundingCube();
+    
     // Clear existing points and labels
     points.forEach(point => {
         scene.remove(point);
@@ -254,10 +564,10 @@ function updateVisualization() {
         // Create mesh
         const point = new THREE.Mesh(geometry, material);
         
-        // Set position using vector coordinates (normalized to -1 to 1 range)
-        const x = (vector.x - 250) / 100;
-        const y = (vector.y - 250) / 100;
-        const z = (vector.z - 250) / 100;
+        // Set position using vector coordinates (normalized to -1 to 1 range based on actual data bounds)
+        const x = normalizeValue(vector.x, 'x');
+        const y = normalizeValue(vector.y, 'y');
+        const z = normalizeValue(vector.z, 'z');
         point.position.set(x, y, z);
         
         // Store vector data for interaction
@@ -355,17 +665,6 @@ function updateVisualization() {
                 
                 // Show details immediately on touch
                 showVectorDetails(event, vector);
-                
-                // Set a timeout to clear details after 3 seconds if no further interaction
-                if (touchTimeout) {
-                    clearTimeout(touchTimeout);
-                }
-                touchTimeout = setTimeout(() => {
-                    if (lastIntersectedPoint === point) {
-                        document.getElementById('vectorDetails').innerHTML = '';
-                        lastIntersectedPoint = null;
-                    }
-                }, 3000);
             }
         }
     }
@@ -418,17 +717,25 @@ function updateVisualization() {
 
 // Show vector details in panel on hover/touch
 function showVectorDetails(event, d) {
+    const container = document.getElementById('vectorDetails');
+    
+    if (!d) {
+        container.innerHTML = '';
+        return;
+    }
+    
+    const vectorStr = d.vector ? d.vector.map(v => v.toFixed(4)).join(', ') : 'N/A';
     const deleteLink = d.isQueryVector ? '' : `<a href="javascript:void(0)" onclick="initiateDeleteVector('${d.id}')" class="vector-delete-link">delete</a>`;
     
-    const detailsHtml = `
+    container.innerHTML = `
         <div class="vector-detail-item">
-            <strong>text:</strong> ${d.text.length > 10 ? d.text.substring(0, 10) + '...' : d.text}, 
-            <strong>vector:</strong> [${d.vector.map(v => v.toFixed(3)).join(', ')}]
+            <div class="vector-detail-content">
+                <strong>text:</strong> ${d.text}<br>
+                <strong>vector:</strong> [${vectorStr}]
+            </div>
             ${deleteLink}
         </div>
     `;
-    
-    document.getElementById('vectorDetails').innerHTML = detailsHtml;
 }
 
 // Delete vector from database
@@ -534,9 +841,9 @@ async function addVector() {
             // Add the new vector to our local array instead of reloading
             const newVector = {
                 id: data.id,
-                x: data.vector[0] * 100 + 250, // Use same scale as other vectors
-                y: data.vector[1] * 100 + 250,
-                z: data.vector[2] * 100 + 250,
+                x: data.vector[0], // Use raw vector values directly
+                y: data.vector[1],
+                z: data.vector[2],
                 vector: data.vector,
                 text: text,
                 type: 'document',
@@ -551,8 +858,12 @@ async function addVector() {
             newVector.isHighlighted = true;
             highlightedPoints.add(newVector.id);
             
-            // Update visualization
-            updateVisualization();
+            // Update visualization based on current mode
+            if (currentDimension === 3) {
+                updateVisualization();
+            } else {
+                showRadarChart();
+            }
             
             // Update stats
             await loadStats();
@@ -591,9 +902,9 @@ async function searchVectors() {
         
         const embeddingData = await embeddingResponse.json();
         currentQueryVector = {
-            x: embeddingData.embedding[0] * 100 + 250, // Use same scale as other vectors
-            y: embeddingData.embedding[1] * 100 + 250,
-            z: embeddingData.embedding[2] * 100 + 250,
+            x: embeddingData.embedding[0], // Use raw vector values directly
+            y: embeddingData.embedding[1],
+            z: embeddingData.embedding[2],
             vector: embeddingData.embedding,
             text: query,
             isQueryVector: true,
@@ -638,8 +949,12 @@ function updateVisualizationWithSearch() {
         }
     });
     
-    // Force re-render of visualization to apply highlighting
-    updateVisualization();
+    // Update visualization based on current mode
+    if (currentDimension === 3) {
+        updateVisualization();
+    } else {
+        showRadarChart();
+    }
 }
 
 // Highlight a specific vector
@@ -749,13 +1064,18 @@ function clearSearch() {
         vector.isHighlighted = false;
     });
     
-    // Update visualization
-    updateVisualization();
+    // Update visualization based on current mode
+    if (currentDimension === 3) {
+        updateVisualization();
+    } else {
+        showRadarChart();
+    }
     
     // Clear displays
     document.getElementById('searchResults').innerHTML = '...';
     document.getElementById('querySummary').innerHTML = '';
     document.getElementById('searchQuery').value = '';
+    document.getElementById('vectorDetails').innerHTML = '';
     
     // Reset the search results title
     const resultsSection = document.getElementById('searchResults').closest('.results-section');
@@ -789,8 +1109,20 @@ async function loadStats() {
                 <span class="stat-value">${data.vector_db.total_vectors}</span>
             </div>
             <div class="stat-item">
-                <span class="stat-label">Dimension:</span>
+                <span class="stat-label">Model:</span>
+                <span class="stat-value">${data.vector_db.model_name}</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Original Dim:</span>
+                <span class="stat-value">${data.vector_db.original_dimension}D</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">Reduced Dim:</span>
                 <span class="stat-value">${data.vector_db.dimension}D</span>
+            </div>
+            <div class="stat-item">
+                <span class="stat-label">PCA Status:</span>
+                <span class="stat-value">${data.vector_db.pca_fitted ? 'Fitted' : 'Not Fitted'}</span>
             </div>
         `;
         

@@ -113,6 +113,12 @@ main {
     flex-direction: column;
 }
 
+#dimensionToggle {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #CCC;
+}
+
 button {
     background-color: #FEFEFE;
     border: 1px solid #999;
@@ -178,7 +184,7 @@ button {
     font-size: 0.9rem;
     line-height: 1.5;
     color: #333;
-    max-height: 400px;
+    max-height: 500px;
     overflow-y: auto;
 }
 
@@ -270,28 +276,43 @@ button {
 }
 
 /* Vector Details */
+.vector-details-container {
+    background-color: #f9f9f9;
+    border-top: 1px solid #ddd;
+    padding: 0.75rem;
+    min-height: 2.5rem;
+}
+
 .vector-detail-item {
     margin-bottom: 0.5rem;
     font-size: 0.85rem;
     color: #666;
     font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
-    padding: 0.25rem 0.25rem 0.5rem 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+}
+
+.vector-detail-item:last-child {
+    margin-bottom: 0;
+}
+
+.vector-detail-content {
+    flex: 1;
 }
 
 a.vector-delete-link {
     color: #cc0077;
     text-decoration: none;
-    font-size: 0.9em;
-    border-left: 1px dashed #AAA;
+    font-size: 0.8rem;
     margin-left: 0.5rem;
-    padding-left: 1rem;
+    flex-shrink: 0;
 }
 
-.vector-details-container {
-    min-height: 2.5rem;
-    height: 2.5rem;
-    overflow-y: auto;
-    margin-top: 0.5rem;
+.vector-detail-empty {
+    text-align: center;
+    color: #999;
+    font-style: italic;
 }
 
 /* Stats */
@@ -483,6 +504,16 @@ pre {
         align-items: flex-start;
         gap: 1rem;
     }
+
+    .vector-details-container {
+        background-color: #f9f9f9;
+        border-top: 1px solid #ddd;
+        min-height: 2.5rem;
+        width: 100%;
+        overflow-y: scroll;
+        max-height: 150px;
+        padding: 0;
+    }
     
     footer {
         padding: 0.75rem;
@@ -504,6 +535,8 @@ pre {
         padding: 0.5rem 0.25rem 0.75rem 0.75rem;
         font-size: 0.9rem;
     }
+    
+
 }
 
 /* Utility */

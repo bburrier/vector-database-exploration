@@ -14,7 +14,7 @@
         <section id="masthead">
             <h1>Vector Database Exploration</h1>
             <summary>
-                Exploring vector embeddings in 3D space with interactive visualization.
+                Exploring vector database embeddings and search
             </summary>
         </section>
 
@@ -29,6 +29,14 @@
                 <label for="searchQuery">Search term</label>
                 <input type="text" id="searchQuery" placeholder="Text to search...">
                 <button id="searchBtn" onclick="searchVectors()">Search</button>
+            </div>
+
+            <div class="input-group">
+                <label for="dimensionToggle">Visualization Mode</label>
+                <select id="dimensionToggle" onchange="changeDimension()">
+                    <option value="3" selected>3D Scatter Plot</option>
+                    <option value="20">20D Radar Chart</option>
+                </select>
             </div>
 
             <div class="button-group">
@@ -47,8 +55,6 @@
             <div id="visualization" class="visualization"></div>
             <div class="vector-details-container">
                 <div id="vectorDetails" class="results-content">
-                    <div class="vector-detail-item">
-                    </div>
                 </div>
             </div>
         </section>

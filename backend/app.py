@@ -26,8 +26,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize the vector database
-vector_db = SimpleVectorDB(dimension=3, storage_file="vector_db.json")
+# Initialize the vector database with sentence-transformers
+vector_db = SimpleVectorDB(dimension=3, storage_file="vector_db.json", model_name="all-MiniLM-L6-v2")
 
 # Pydantic models for request/response
 class VectorRequest(BaseModel):
@@ -88,8 +88,9 @@ async def health_check():
 @app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
     """Get system statistics."""
+    stats = vector_db.get_stats()
     return StatsResponse(
-        vector_db=vector_db.get_stats()
+        vector_db=stats
     )
 
 @app.get("/api/vectors")
@@ -201,6 +202,43 @@ async def generate_embedding(request: EmbeddingRequest):
         dimension=len(embedding)
     )
 
+@app.post("/api/regenerate")
+async def regenerate_embeddings():
+    """Regenerate all embeddings with current PCA model and scaling."""
+    try:
+        success = vector_db.regenerate_all_embeddings()
+        if success:
+            return {
+                'success': True,
+                'message': 'All embeddings regenerated successfully',
+                'count': len(vector_db.vectors)
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to regenerate embeddings")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error regenerating embeddings: {str(e)}")
+
+@app.post("/api/change-dimension")
+async def change_dimension(request: dict):
+    """Change PCA dimension and regenerate all embeddings."""
+    try:
+        new_dimension = request.get('dimension')
+        if new_dimension not in [3, 20]:
+            raise HTTPException(status_code=400, detail="Dimension must be 3 or 20")
+        
+        success = vector_db.change_dimension(new_dimension)
+        if success:
+            return {
+                'success': True,
+                'message': f'Dimension changed to {new_dimension}',
+                'dimension': new_dimension,
+                'count': len(vector_db.vectors)
+            }
+        else:
+            raise HTTPException(status_code=400, detail="Failed to change dimension")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error changing dimension: {str(e)}")
+
 # Serve frontend static files
 frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
 if os.path.exists(frontend_path):
@@ -232,4 +270,4 @@ if __name__ == "__main__":
     print("  http://localhost:8000/redoc - ReDoc")
     print("\nServer starting on http://localhost:8000")
     
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True) 
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=False) 

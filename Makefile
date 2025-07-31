@@ -4,19 +4,44 @@ BACKEND_PORT := 8000
 FRONTEND_PORT := 3000
 BACKEND_PID := .backend.pid
 FRONTEND_PID := .frontend.pid
+VENV := $(shell pwd)/venv
+PYTHON := $(VENV)/bin/python
+PIP := $(VENV)/bin/pip
 
-.PHONY: help start status stop logs
+.PHONY: help setup start status stop logs clean kill
 
 help:
 	@echo "Vector Database Exploration:\n"
+	@echo "  make setup  - Create virtual environment and install dependencies"
 	@echo "  make start  - Start frontend and backend"
 	@echo "  make status - Show status of services"
 	@echo "  make stop   - Stop frontend and backend"
+	@echo "  make kill   - Kill any orphaned processes on ports"
 	@echo "  make logs   - Show logs\n"
 
+setup:
+	@echo "Setting up virtual environment..."
+	@if [ ! -d "$(VENV)" ]; then \
+		python3 -m venv $(VENV); \
+		echo "Virtual environment created"; \
+	else \
+		echo "Virtual environment already exists"; \
+	fi
+	@echo "Installing dependencies..."
+	@$(PIP) install -r backend/requirements.txt
+	@echo "Setup complete! Run 'make start' to start the servers"
+
 start:
-	@cd backend && python3 -m uvicorn app:app --host 0.0.0.0 --port $(BACKEND_PORT) --reload > ../$(BACKEND_PID) 2>&1 & echo $$! > ../$(BACKEND_PID)
-	@cd frontend && python3 -m http.server $(FRONTEND_PORT) > ../$(FRONTEND_PID) 2>&1 & echo $$! > ../$(FRONTEND_PID)
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@cd backend && $(PYTHON) app.py > ../backend.log 2>&1 &
+	@cd frontend && python3 -m http.server $(FRONTEND_PORT) > ../frontend.log 2>&1 &
+	@echo "Waiting for servers to start..."
+	@sleep 8
+	@echo "Checking server status..."
+	@./scripts/update_pids.sh
 	@echo "Servers started:"
 	@echo "  Backend (API + static): http://localhost:$(BACKEND_PORT)"
 	@echo "  Frontend (hot reload): http://localhost:$(FRONTEND_PORT)"
@@ -48,16 +73,30 @@ stop:
 		echo "Frontend stopped"; \
 	fi
 
+kill:
+	@echo "Killing orphaned processes on ports $(BACKEND_PORT) and $(FRONTEND_PORT)..."
+	@lsof -ti:$(BACKEND_PORT) 2>/dev/null | xargs kill -9 2>/dev/null || echo "No processes on port $(BACKEND_PORT)"
+	@lsof -ti:$(FRONTEND_PORT) 2>/dev/null | xargs kill -9 2>/dev/null || echo "No processes on port $(FRONTEND_PORT)"
+	@rm -f $(BACKEND_PID) $(FRONTEND_PID)
+	@echo "Kill complete"
+
 logs:
-	@if [ -f $(BACKEND_PID) ]; then \
+	@if [ -f backend.log ]; then \
 		echo "Backend logs:"; \
-		tail -10 $(BACKEND_PID); \
+		tail -10 backend.log; \
 	else \
 		echo "No backend logs"; \
 	fi
-	@if [ -f $(FRONTEND_PID) ]; then \
+	@if [ -f frontend.log ]; then \
 		echo "Frontend logs:"; \
-		tail -10 $(FRONTEND_PID); \
+		tail -10 frontend.log; \
 	else \
 		echo "No frontend logs"; \
-	fi 
+	fi
+
+clean:
+	@echo "Cleaning up..."
+	@make stop
+	@rm -rf $(VENV)
+	@rm -f $(BACKEND_PID) $(FRONTEND_PID)
+	@echo "Cleanup complete" 
