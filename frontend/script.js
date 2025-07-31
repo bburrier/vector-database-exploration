@@ -37,8 +37,6 @@ function initializeVisualization() {
         .attr('width', width)
         .attr('height', height);
     
-
-    
     // Create simulation with padding
     simulation = d3.forceSimulation()
         .force('charge', d3.forceManyBody().strength(-80))
@@ -388,7 +386,12 @@ function displaySearchResults(data) {
         `;
     }).join('');
     
-    container.innerHTML = querySummary + resultsHtml;
+    // Update query summary container
+    const querySummaryContainer = document.getElementById('querySummary');
+    querySummaryContainer.innerHTML = querySummary;
+    
+    // Update results container
+    container.innerHTML = resultsHtml;
 }
 
 // Clear search
@@ -412,6 +415,7 @@ function clearSearch() {
     
     // Clear displays
     document.getElementById('searchResults').innerHTML = '...';
+    document.getElementById('querySummary').innerHTML = '';
     document.getElementById('searchQuery').value = '';
     
     // Reset the search results title

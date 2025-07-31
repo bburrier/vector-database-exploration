@@ -25,11 +25,12 @@ a:active {
 /* Main Layout */
 main {
     display: grid;
-    grid-template-columns: repeat(2, 2fr); 
+    grid-template-columns: 250px 1fr 350px;
+    gap: 1rem;
     justify-content: center;
     justify-items: stretch;
     margin: 0 auto;
-    max-width: 1400px;
+    max-width: 1200px;
     padding: 1rem 1.5rem 8rem 1.5rem;
     vertical-align: top;
 }
@@ -61,7 +62,7 @@ main {
     box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.05);
     padding: 1.5rem;
     height: fit-content;
-    margin: 5px;
+    margin: 0;
 }
 
 .control-panel h3 {
@@ -85,8 +86,7 @@ main {
 .input-group label {
     display: block;
     margin-bottom: 0.5rem;
-    font-weight: 500;
-    font-size: 0.9rem;
+    font-weight: 600;
     color: #333;
 }
 
@@ -111,7 +111,6 @@ main {
 .button-group {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
 }
 
 button {
@@ -132,8 +131,8 @@ button {
     border-radius: 4px;
     border: 1px solid #CCC;
     box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.05);
-    padding: 1.5rem;
-    margin: 5px;
+    margin: 0;
+    max-height: 550px;
 }
 
 .visualization-header {
@@ -154,7 +153,6 @@ button {
     height: 500px;
     background-color: #FFF;
     border-radius: 4px;
-    border: 1px solid #CCC;
     position: relative;
     overflow: hidden;
 }
@@ -166,8 +164,8 @@ button {
     border: 1px solid #CCC;
     box-shadow: 5px 5px 5px rgba(0, 0, 0, 0.05);
     padding: 1.5rem;
-    margin: 5px;
-    width: 300px;
+    margin: 0;
+    min-width: 300px;
 }
 
 .results-section h3 {
@@ -180,6 +178,8 @@ button {
     font-size: 0.9rem;
     line-height: 1.5;
     color: #333;
+    max-height: 400px;
+    overflow-y: auto;
 }
 
 /* Search Results */
@@ -243,12 +243,15 @@ button {
     border-radius: 3px;
 }
 
+.query-summary-container {
+    margin-bottom: 1rem;
+}
+
 .query-summary {
     background-color: #f9f9f9;
     border-radius: 4px;
     padding: 1rem;
-    margin-bottom: 1rem;
-    border-left: 8px solid #cadab7;
+    border-left: 8px solid #c2dfb7;
 }
 
 .query-title {
@@ -273,12 +276,12 @@ button {
     font-size: 0.85rem;
     color: #666;
     font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
-    padding: 0.25rem 0.5rem;
+    padding: 0.25rem 0.25rem 0.5rem 0.75rem;
 }
 
 .vector-details-container {
-    min-height: 1.5rem;
-    height: 1.5rem;
+    min-height: 2.5rem;
+    height: 2.5rem;
     overflow-y: auto;
     margin-top: 0.5rem;
 }
@@ -403,38 +406,47 @@ pre {
     overflow-x: auto;
 }
 
-/* Mobile / Tablet */
+/* Tablet */
 @media (max-width: 1200px) {
     main { 
         grid-template-columns: unset;
         justify-items: stretch;
-        padding: 1rem;
+        padding: 1rem 1rem 8rem 1rem;
     }
     
     .control-panel {
         order: 2;
+        width: unset;
+    }
+
+    .input-group input {
+        width: 80%;
     }
     
     .visualization-container {
         order: 1;
+        width: unset;
     }
     
     .results-section {
         order: 3;
+        width: unset;
     }
 }
 
-@media (max-width: 700px) {
+/* Mobile */
+@media (max-width: 650px) {
     main { 
         grid-template-columns: unset;
         justify-items: stretch;
-        padding: 0.75rem;
+        padding: 0.75rem 0.75rem 8rem 0.75rem;
     }
     
     .control-panel,
     .visualization-container,
     .results-section {
         padding: 1rem;
+        width: unset;
     }
     
     .visualization {
