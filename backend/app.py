@@ -1,9 +1,12 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from typing import List, Dict, Optional
 import json
 import uuid
+import os
 from datetime import datetime
 from vector_db import SimpleVectorDB
 
@@ -197,6 +200,20 @@ async def generate_embedding(request: EmbeddingRequest):
         embedding=embedding,
         dimension=len(embedding)
     )
+
+# Serve frontend static files
+frontend_path = os.path.join(os.path.dirname(__file__), "..", "frontend")
+if os.path.exists(frontend_path):
+    app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+
+@app.get("/")
+async def serve_frontend():
+    """Serve the main frontend page."""
+    frontend_index = os.path.join(frontend_path, "index.html")
+    if os.path.exists(frontend_index):
+        return FileResponse(frontend_index)
+    else:
+        raise HTTPException(status_code=404, detail="Frontend not found")
 
 if __name__ == "__main__":
     import uvicorn

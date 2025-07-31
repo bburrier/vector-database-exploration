@@ -2,12 +2,19 @@
 let vectors = [];
 let searchResults = [];
 let currentQueryVector = null;
-let svg, simulation;
-let tooltip;
-let highlightedNodes = new Set();
+let scene, camera, renderer, controls;
+let points = [];
+let labels = [];
+let pointMeshes = []; // Separate array for actual point meshes (for raycaster)
+let highlightedPoints = new Set();
 
-// API base URL
-const API_BASE = 'http://localhost:8000/api';
+// Default camera position constant
+const DEFAULT_CAMERA_POSITION = [2.1, 0.1, 3.8];
+
+// API base URL - automatically detect environment
+// If accessed via ngrok (HTTPS), use relative paths
+// If accessed via localhost:3000 (development), use backend URL
+const API_BASE = window.location.protocol === 'https:' ? '/api' : 'http://localhost:8000/api';
 
 // Initialize the application
 document.addEventListener('DOMContentLoaded', function() {
@@ -25,44 +32,166 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 
-// Initialize D3.js visualization
+// Initialize Three.js 3D visualization
 function initializeVisualization() {
     const container = document.getElementById('visualization');
-    const width = container.clientWidth;
-    const height = container.clientHeight;
     
-    // Create SVG
-    svg = d3.select('#visualization')
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height);
+    // Calculate available space with 1rem margin
+    const margin = 16; // 1rem = 16px
+    const width = container.clientWidth - (margin * 2);
+    const height = container.clientHeight - (margin * 2);
     
-    // Create simulation with padding
-    simulation = d3.forceSimulation()
-        .force('charge', d3.forceManyBody().strength(-80))
-        .force('center', d3.forceCenter(width / 2, height / 2))
-        .force('collision', d3.forceCollide().radius(15))
-        .force('x', d3.forceX(width / 2).strength(0.1))
-        .force('y', d3.forceY(height / 2).strength(0.1))
-        .force('padding', function() {
-            // Add padding force to keep nodes away from edges
-            vectors.forEach(function(d) {
-                const padding = 10;
-                if (d.x < padding) d.x = padding;
-                if (d.x > width - padding) d.x = width - padding;
-                if (d.y < padding) d.y = padding;
-                if (d.y > height - padding) d.y = height - padding;
-            });
-        });
+    // Create scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0xffffff);
+    
+    // Create camera
+    camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
+    // Camera position: (X, Y, Z)
+    // X: Positive = right, Negative = left
+    // Y: Positive = up, Negative = down (looking up at cube)
+    // Z: Positive = forward, Negative = backward
+    // Distance from origin = sqrt(X² + Y² + Z²) - increase for less zoom, decrease for more zoom
+    // For rotation: adjust X/Z ratio (X/Z = tan(angle))
+    camera.position.set(DEFAULT_CAMERA_POSITION[0], DEFAULT_CAMERA_POSITION[1], DEFAULT_CAMERA_POSITION[2]);
+    
+    // Create renderer
+    renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(width, height);
+    renderer.domElement.style.margin = '1rem';
+    container.appendChild(renderer.domElement);
+    
+    // Add camera position display
+    addCameraPositionDisplay();
+    
+    // Add controls
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    
+    // Add lighting
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.6);
+    scene.add(ambientLight);
+    
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    directionalLight.position.set(1, 1, 1);
+    scene.add(directionalLight);
+    
+    // Add grid lines for perspective
+    addGridLines();
     
     // Handle window resize
     window.addEventListener('resize', function() {
-        const newWidth = container.clientWidth;
-        const newHeight = container.clientHeight;
-        svg.attr('width', newWidth).attr('height', newHeight);
-        simulation.force('center', d3.forceCenter(newWidth / 2, newHeight / 2));
-        simulation.alpha(1).restart();
+        const margin = 16; // 1rem = 16px
+        const newWidth = container.clientWidth - (margin * 2);
+        const newHeight = container.clientHeight - (margin * 2);
+        
+        camera.aspect = newWidth / newHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(newWidth, newHeight);
     });
+    
+    // Start animation loop
+    animate();
+}
+
+// Animation loop
+function animate() {
+    requestAnimationFrame(animate);
+    controls.update();
+    renderer.render(scene, camera);
+    
+    // Update camera position display
+    updateCameraPositionDisplay();
+}
+
+// Add bounding cube for perspective
+function addGridLines() {
+    // Create bounding cube
+    const cubeSize = 3;
+    const cubeGeometry = new THREE.BoxGeometry(cubeSize, cubeSize, cubeSize);
+    const cubeMaterial = new THREE.MeshBasicMaterial({ 
+        color: 0x444444, 
+        transparent: true, 
+        opacity: 0.1,
+        wireframe: true
+    });
+    const cube = new THREE.Mesh(cubeGeometry, cubeMaterial);
+    scene.add(cube);
+}
+
+// Add camera position display
+function addCameraPositionDisplay() {
+    const container = document.getElementById('visualization');
+    
+    // Create position display element
+    const positionDisplay = document.createElement('div');
+    positionDisplay.id = 'cameraPositionDisplay';
+    positionDisplay.style.cssText = `
+        position: absolute;
+        bottom: 10px;
+        right: 10px;
+        color: #CCC;
+        padding: 5px 8px;
+        border-radius: 4px;
+        font-family: monospace;
+        font-size: 9px;
+        z-index: 1000;
+        pointer-events: none;
+    `;
+    positionDisplay.textContent = 'camera: (0, 0, 0)';
+    
+    container.appendChild(positionDisplay);
+}
+
+// Update camera position display
+function updateCameraPositionDisplay() {
+    const display = document.getElementById('cameraPositionDisplay');
+    if (display && camera) {
+        const x = camera.position.x.toFixed(1);
+        const y = camera.position.y.toFixed(1);
+        const z = camera.position.z.toFixed(1);
+        display.textContent = `camera: (${x}, ${y}, ${z})`;
+    }
+}
+
+// Add text label for a vector
+function addTextLabel(vector, x, y, z) {
+    // Create a canvas for the text
+    const canvas = document.createElement('canvas');
+    const context = canvas.getContext('2d');
+    canvas.width = 768; // 3x larger
+    canvas.height = 192; // 3x larger
+    
+    // Set text properties
+    context.fillStyle = '#000000';
+    context.font = '72px Arial'; // 3x larger (24 * 3 = 72)
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    
+    // Draw text
+    const text = vector.text.substring(0, 15) + (vector.text.length > 15 ? '...' : '');
+    context.fillText(text, canvas.width / 2, canvas.height / 2);
+    
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+    
+    // Create sprite material
+    const spriteMaterial = new THREE.SpriteMaterial({ 
+        map: texture,
+        transparent: true,
+        opacity: 0.8
+    });
+    
+    // Create sprite (always faces camera)
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.position.set(x + 0.3, y + 0.3, z + 0.3); // Offset further from point to avoid overlap
+    sprite.scale.set(1.5, 0.375, 1); // 3x larger scale
+    // Sprites automatically face the camera by default
+    
+    // Add to scene and labels array
+    scene.add(sprite);
+    labels.push(sprite);
 }
 
 // Load vectors from API
@@ -92,84 +221,293 @@ async function loadVectors() {
 
 // Update the 3D visualization
 function updateVisualization() {
-    // Clear existing elements
-    svg.selectAll('*').remove();
+    // Clear existing points and labels
+    points.forEach(point => {
+        scene.remove(point);
+    });
+    points = [];
     
-    // Create nodes
-    const nodes = svg.selectAll('.node')
-        .data(vectors)
-        .enter()
-        .append('circle')
-        .attr('class', d => `node vector-point ${d.isHighlighted ? 'highlighted' : ''}`)
-        .attr('r', 8) // Consistent radius for all nodes
-        .attr('fill', '#000') // All vectors are black dots
-        .attr('stroke', 'none') // No border
-        .attr('opacity', 0.8)
-        .on('mouseover', showVectorDetails)
+    labels.forEach(label => {
+        scene.remove(label);
+    });
+    labels = [];
     
-    // Add labels for some nodes (avoid clutter)
-    const labels = svg.selectAll('.label')
-        .data(vectors.filter((d, i) => i < 10)) // Show labels for first 10 nodes
-        .enter()
-        .append('text')
-        .attr('class', 'label')
-        .attr('text-anchor', 'middle')
-        .attr('dy', -12)
-        .attr('font-size', '10px')
-        .attr('fill', '#666')
-        .text(d => d.text.substring(0, 15) + (d.text.length > 15 ? '...' : ''));
+    pointMeshes = []; // Clear point meshes array
     
-    // Update simulation without restarting if it's already running
-    simulation.nodes(vectors)
-        .on('tick', () => {
-            const container = document.getElementById('visualization');
-            const width = container.clientWidth;
-            const height = container.clientHeight;
-            const padding = 10;
-            
-            nodes
-                .attr('cx', d => {
-                    // Apply padding constraints
-                    d.x = Math.max(padding, Math.min(width - padding, d.x));
-                    return d.x;
-                })
-                .attr('cy', d => {
-                    // Apply padding constraints
-                    d.y = Math.max(padding, Math.min(height - padding, d.y));
-                    return d.y;
-                });
-            
-            labels
-                .attr('x', d => Math.max(padding, Math.min(width - padding, d.x)))
-                .attr('y', d => Math.max(padding, Math.min(height - padding, d.y)));
+    // Create 3D points for each vector
+    const allVectors = [...vectors];
+    if (currentQueryVector) {
+        allVectors.push(currentQueryVector);
+    }
+    
+    allVectors.forEach((vector, index) => {
+        // Create geometry for the point
+        const geometry = new THREE.SphereGeometry(0.08, 8, 8);
+        
+        // Create material
+        const material = new THREE.MeshLambertMaterial({ 
+            color: 0x000000, // Always black
+            transparent: true,
+            opacity: 0.8
         });
+        
+        // Create mesh
+        const point = new THREE.Mesh(geometry, material);
+        
+        // Set position using vector coordinates (normalized to -1 to 1 range)
+        const x = (vector.x - 250) / 100;
+        const y = (vector.y - 250) / 100;
+        const z = (vector.z - 250) / 100;
+        point.position.set(x, y, z);
+        
+        // Store vector data for interaction
+        point.userData = {
+            vector: vector,
+            index: index
+        };
+        
+        // Add to scene and arrays
+        scene.add(point);
+        points.push(point);
+        pointMeshes.push(point); // Add to pointMeshes for raycaster
+        
+        // Add glow for highlighted points
+        if (vector.isHighlighted) {
+            const glowSize = vector.isQueryVector ? 0.25 : 0.15; // Larger glow for query vector
+            const glowGeometry = new THREE.SphereGeometry(glowSize, 8, 8);
+            const glowMaterial = new THREE.MeshBasicMaterial({ 
+                color: vector.isQueryVector ? 0xa081d9 : 0x22bb11,
+                transparent: true, 
+                opacity: 0.3
+            });
+            const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+            glow.position.set(x, y, z);
+            scene.add(glow);
+            points.push(glow); // Add to points array so it gets cleared on update
+        }
+        
+        // Add text label (only for first 10 points to avoid clutter, or for query vector, or highlighted points)
+        if (index < 10 || vector.isQueryVector || vector.isHighlighted) {
+            addTextLabel(vector, x, y, z);
+        }
+    });
     
-    // Only restart if simulation is not already running
-    if (simulation.alpha() < 0.1) {
-        simulation.alpha(0.3).restart();
+    // Add raycaster for mouse and touch interaction
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    let lastIntersectedPoint = null;
+    let touchTimeout = null;
+    
+    // Add mouse event listeners (desktop)
+    renderer.domElement.addEventListener('mousemove', onMouseMove);
+    renderer.domElement.addEventListener('click', onMouseClick);
+    
+    // Add touch event listeners (mobile)
+    renderer.domElement.addEventListener('touchstart', onTouchStart, { passive: false });
+    renderer.domElement.addEventListener('touchmove', onTouchMove, { passive: false });
+    renderer.domElement.addEventListener('touchend', onTouchEnd, { passive: false });
+    
+    function onMouseMove(event) {
+        const rect = renderer.domElement.getBoundingClientRect();
+        mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+        mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(pointMeshes);
+        
+        if (intersects.length > 0) {
+            const point = intersects[0].object;
+            const vector = point.userData.vector;
+            lastIntersectedPoint = point;
+            showVectorDetails(event, vector);
+        } else {
+            lastIntersectedPoint = null;
+        }
+    }
+    
+    function onMouseClick(event) {
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(pointMeshes);
+        
+        if (intersects.length > 0) {
+            const point = intersects[0].object;
+            const vector = point.userData.vector;
+            // Handle click if needed
+        }
+    }
+    
+    function onTouchStart(event) {
+        event.preventDefault();
+        
+        if (event.touches.length === 1) {
+            const touch = event.touches[0];
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(pointMeshes);
+            
+            if (intersects.length > 0) {
+                const point = intersects[0].object;
+                const vector = point.userData.vector;
+                lastIntersectedPoint = point;
+                
+                // Show details immediately on touch
+                showVectorDetails(event, vector);
+                
+                // Set a timeout to clear details after 3 seconds if no further interaction
+                if (touchTimeout) {
+                    clearTimeout(touchTimeout);
+                }
+                touchTimeout = setTimeout(() => {
+                    if (lastIntersectedPoint === point) {
+                        document.getElementById('vectorDetails').innerHTML = '';
+                        lastIntersectedPoint = null;
+                    }
+                }, 3000);
+            }
+        }
+    }
+    
+    function onTouchMove(event) {
+        event.preventDefault();
+        
+        if (event.touches.length === 1) {
+            const touch = event.touches[0];
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((touch.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(pointMeshes);
+            
+            if (intersects.length > 0) {
+                const point = intersects[0].object;
+                const vector = point.userData.vector;
+                
+                if (lastIntersectedPoint !== point) {
+                    lastIntersectedPoint = point;
+                    showVectorDetails(event, vector);
+                    
+                    // Reset timeout
+                    if (touchTimeout) {
+                        clearTimeout(touchTimeout);
+                    }
+                    touchTimeout = setTimeout(() => {
+                        if (lastIntersectedPoint === point) {
+                            document.getElementById('vectorDetails').innerHTML = '';
+                            lastIntersectedPoint = null;
+                        }
+                    }, 3000);
+                }
+            } else {
+                lastIntersectedPoint = null;
+            }
+        }
+    }
+    
+    function onTouchEnd(event) {
+        event.preventDefault();
+        // Keep the details visible for a moment after touch ends
+        // The timeout will handle clearing them
     }
 }
 
-// Get node color based on type
-function getNodeColor(d) {
-    return '#000'; // All vectors are black
-}
 
-// Get node opacity
-function getNodeOpacity(d) {
-    return 0.8; // Consistent opacity for all nodes
-}
 
-// Show vector details in panel on hover
+// Show vector details in panel on hover/touch
 function showVectorDetails(event, d) {
+    const deleteLink = d.isQueryVector ? '' : `<a href="javascript:void(0)" onclick="initiateDeleteVector('${d.id}')" class="vector-delete-link">delete</a>`;
+    
     const detailsHtml = `
         <div class="vector-detail-item">
-            <strong>text:</strong> ${d.text}, 
+            <strong>text:</strong> ${d.text.length > 10 ? d.text.substring(0, 10) + '...' : d.text}, 
             <strong>vector:</strong> [${d.vector.map(v => v.toFixed(3)).join(', ')}]
+            ${deleteLink}
         </div>
     `;
     
     document.getElementById('vectorDetails').innerHTML = detailsHtml;
+}
+
+// Delete vector from database
+async function deleteVector(vectorId) {
+    try {
+        const response = await fetch(`${API_BASE}/vectors/${vectorId}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        });
+        
+        const data = await response.json();
+        
+        if (data.success) {
+            // Remove from local arrays
+            vectors = vectors.filter(v => v.id !== vectorId);
+            highlightedPoints.delete(vectorId);
+            
+            // Clear vector details panel
+            document.getElementById('vectorDetails').innerHTML = '';
+            
+            // Update visualization
+            updateVisualization();
+            
+            // Update stats
+            await loadStats();
+            
+            console.log('Vector deleted successfully');
+        } else {
+            console.error('Failed to delete vector:', data.error);
+        }
+    } catch (error) {
+        console.error('Error deleting vector:', error);
+    }
+}
+
+// Initiate delete with countdown confirmation
+function initiateDeleteVector(vectorId) {
+    // Find the delete link element
+    const deleteLink = document.querySelector(`a[onclick="initiateDeleteVector('${vectorId}')"]`);
+    if (!deleteLink) return;
+    
+    // Prevent default link behavior
+    event.preventDefault();
+    
+    // Store original text to restore if cancelled
+    const originalText = deleteLink.textContent;
+    const originalOnClick = deleteLink.onclick;
+    
+    // Start countdown
+    let countdown = 5;
+    
+    // Update link text and onclick
+    deleteLink.textContent = `cancel (${countdown}s)`;
+    deleteLink.onclick = function(e) {
+        e.preventDefault();
+        // Cancel the deletion
+        deleteLink.textContent = originalText;
+        deleteLink.onclick = originalOnClick;
+        clearInterval(countdownInterval);
+    };
+    
+    // Countdown timer
+    const countdownInterval = setInterval(() => {
+        countdown--;
+        if (countdown > 0) {
+            deleteLink.textContent = `cancel (${countdown}s)`;
+        } else {
+            // Time's up, execute deletion
+            deleteLink.textContent = `cancel (0s)`;
+            clearInterval(countdownInterval);
+            
+            // Execute delete after a brief moment
+            setTimeout(() => {
+                deleteVector(vectorId);
+            }, 100);
+        }
+    }, 1000);
 }
 
 // Add new vector
@@ -196,9 +534,9 @@ async function addVector() {
             // Add the new vector to our local array instead of reloading
             const newVector = {
                 id: data.id,
-                x: data.vector[0] * 150 + 250,
-                y: data.vector[1] * 150 + 250,
-                z: data.vector[2] * 150 + 250,
+                x: data.vector[0] * 100 + 250, // Use same scale as other vectors
+                y: data.vector[1] * 100 + 250,
+                z: data.vector[2] * 100 + 250,
                 vector: data.vector,
                 text: text,
                 type: 'document',
@@ -209,14 +547,15 @@ async function addVector() {
             
             vectors.push(newVector);
             
-            // Update visualization without restarting simulation
+            // Highlight the newly added vector before updating visualization
+            newVector.isHighlighted = true;
+            highlightedPoints.add(newVector.id);
+            
+            // Update visualization
             updateVisualization();
             
             // Update stats
             await loadStats();
-            
-            // Highlight the newly added vector
-            highlightVector(newVector.id); // Highlight permanently
             
 
         } else {
@@ -236,11 +575,10 @@ async function searchVectors() {
     
     try {
         // Clear previous search highlights
-        highlightedNodes.clear();
+        highlightedPoints.clear();
         vectors.forEach(vector => {
             vector.isHighlighted = false;
         });
-        svg.selectAll('.node').classed('highlighted', false);
         
         // Get query embedding
         const embeddingResponse = await fetch(`${API_BASE}/embedding`, {
@@ -253,12 +591,13 @@ async function searchVectors() {
         
         const embeddingData = await embeddingResponse.json();
         currentQueryVector = {
-            x: embeddingData.embedding[0] * 150 + 250,
-            y: embeddingData.embedding[1] * 150 + 250,
-            z: embeddingData.embedding[2] * 150 + 250,
+            x: embeddingData.embedding[0] * 100 + 250, // Use same scale as other vectors
+            y: embeddingData.embedding[1] * 100 + 250,
+            z: embeddingData.embedding[2] * 100 + 250,
             vector: embeddingData.embedding,
             text: query,
-            isQueryVector: true
+            isQueryVector: true,
+            isHighlighted: true // Highlight the query vector
         };
         
         // Search for similar vectors
@@ -279,6 +618,9 @@ async function searchVectors() {
         // Update search results display
         displaySearchResults(searchData);
         
+        // Show search term vector details
+        showVectorDetails(null, currentQueryVector);
+        
     } catch (error) {
         console.error('Error searching vectors:', error);
     }
@@ -292,7 +634,7 @@ function updateVisualizationWithSearch() {
         // Mark search results as highlighted
         if (vector.isSearchResult) {
             vector.isHighlighted = true;
-            highlightedNodes.add(vector.id);
+            highlightedPoints.add(vector.id);
         }
     });
     
@@ -306,13 +648,11 @@ function highlightVector(vectorId) {
     if (!vector) return;
     
     // Add to highlighted set
-    highlightedNodes.add(vectorId);
+    highlightedPoints.add(vectorId);
     vector.isHighlighted = true;
     
-    // Update the specific node's class without restarting simulation
-    svg.selectAll('.node')
-        .filter(d => d.id === vectorId)
-        .classed('highlighted', true);
+    // Update visualization to show highlighting
+    updateVisualization();
 }
 
 // Display search results
@@ -400,7 +740,7 @@ function clearSearch() {
     currentQueryVector = null;
     
     // Clear all highlights
-    highlightedNodes.clear();
+    highlightedPoints.clear();
     
     // Reset vectors
     vectors.forEach(vector => {
@@ -409,9 +749,8 @@ function clearSearch() {
         vector.isHighlighted = false;
     });
     
-    // Update visualization without restarting simulation
-    svg.selectAll('.node')
-        .classed('highlighted', false);
+    // Update visualization
+    updateVisualization();
     
     // Clear displays
     document.getElementById('searchResults').innerHTML = '...';
@@ -426,7 +765,16 @@ function clearSearch() {
 
 // Reset view
 function resetView() {
-    simulation.alpha(1).restart();
+    // Reset camera position - see comments above for adjustment guide
+    // Quick adjustments:
+    // - More zoom: decrease all values (e.g., 2.0, -1.8, 1.0)
+    // - Less zoom: increase all values (e.g., 3.0, -2.6, 1.6)
+    // - Rotate left: decrease X, increase Z
+    // - Rotate right: increase X, decrease Z
+    // - Look more up: decrease Y (more negative)
+    // - Look more down: increase Y (less negative)
+    camera.position.set(DEFAULT_CAMERA_POSITION[0], DEFAULT_CAMERA_POSITION[1], DEFAULT_CAMERA_POSITION[2]);
+    controls.reset();
 }
 
 // Load system stats

@@ -17,16 +17,21 @@ help:
 start:
 	@cd backend && python3 -m uvicorn app:app --host 0.0.0.0 --port $(BACKEND_PORT) --reload > ../$(BACKEND_PID) 2>&1 & echo $$! > ../$(BACKEND_PID)
 	@cd frontend && python3 -m http.server $(FRONTEND_PORT) > ../$(FRONTEND_PID) 2>&1 & echo $$! > ../$(FRONTEND_PID)
-	@echo "Servers started"
+	@echo "Servers started:"
+	@echo "  Backend (API + static): http://localhost:$(BACKEND_PORT)"
+	@echo "  Frontend (hot reload): http://localhost:$(FRONTEND_PORT)"
+	@echo "  Use frontend URL for development with hot reloads"
 
 status:
 	@if [ -f $(BACKEND_PID) ] && ps -p $$(cat $(BACKEND_PID)) > /dev/null 2>&1; then \
 		echo "✓ Backend running (PID: $$(cat $(BACKEND_PID)))"; \
+		echo "  API + static: http://localhost:$(BACKEND_PORT)"; \
 	else \
 		echo "✗ Backend not running"; \
 	fi
 	@if [ -f $(FRONTEND_PID) ] && ps -p $$(cat $(FRONTEND_PID)) > /dev/null 2>&1; then \
 		echo "✓ Frontend running (PID: $$(cat $(FRONTEND_PID)))"; \
+		echo "  Hot reload: http://localhost:$(FRONTEND_PORT)"; \
 	else \
 		echo "✗ Frontend not running"; \
 	fi

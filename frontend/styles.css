@@ -184,8 +184,8 @@ button {
 
 /* Search Results */
 .search-result-item {
-    background-color: #FFF;
     border: 1px solid #CCC;
+    border-left: 4px solid #c4dfa5;
     border-radius: 4px;
     padding: 1rem;
     margin-bottom: 1rem;
@@ -251,12 +251,11 @@ button {
     background-color: #f9f9f9;
     border-radius: 4px;
     padding: 1rem;
-    border-left: 8px solid #c2dfb7;
+    border-left: 4px solid #bdadd9;
 }
 
 .query-title {
-    font-size: 1rem;
-    font-weight: 600;
+    font-size: 0.9rem;
     margin-bottom: 0.5rem;
     color: #222;
 }
@@ -277,6 +276,15 @@ button {
     color: #666;
     font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
     padding: 0.25rem 0.25rem 0.5rem 0.75rem;
+}
+
+a.vector-delete-link {
+    color: #cc0077;
+    text-decoration: none;
+    font-size: 0.9em;
+    border-left: 1px dashed #AAA;
+    margin-left: 0.5rem;
+    padding-left: 1rem;
 }
 
 .vector-details-container {
@@ -420,7 +428,7 @@ pre {
     }
 
     .input-group input {
-        width: 80%;
+        width: 75%;
     }
     
     .visualization-container {
@@ -441,6 +449,10 @@ pre {
         justify-items: stretch;
         padding: 0.75rem 0.75rem 8rem 0.75rem;
     }
+
+    .input-group input {
+        width: 70%;
+    }
     
     .control-panel,
     .visualization-container,
@@ -451,6 +463,14 @@ pre {
     
     .visualization {
         height: 400px;
+        /* Improve touch interaction */
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-user-select: none;
+        -khtml-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
     }
     
     .legend {
@@ -468,6 +488,21 @@ pre {
         padding: 0.75rem;
         font-size: 0.9rem;
         line-height: 0.9rem;
+    }
+    
+    /* Improve touch targets for mobile */
+    .vector-delete-link {
+        padding: 0.5rem 0.75rem;
+        margin-left: 0.75rem;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+    
+    .vector-detail-item {
+        padding: 0.5rem 0.25rem 0.75rem 0.75rem;
+        font-size: 0.9rem;
     }
 }
 
