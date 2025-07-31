@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vector Database Explorer</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+</head>
+<body>
+    <main>
+        <section id="masthead">
+            <h1>Vector Database Explorer</h1>
+            <summary>
+                Exploring vector embeddings in 3D space with interactive visualization.
+            </summary>
+        </section>
+
+        <section class="control-panel">
+            <div class="input-group">
+                <label for="newText">Text to embed:</label>
+                <input type="text" id="newText" placeholder="Text to embded...">
+                <button id="addVectorBtn" onclick="addVector()">Embed</button>
+            </div>
+
+            <div class="input-group">
+                <label for="searchQuery">Search query:</label>
+                <input type="text" id="searchQuery" placeholder="Text to search...">
+                <button id="searchBtn" onclick="searchVectors()">Search</button>
+            </div>
+
+            <div class="button-group">
+                <button id="clearSearchBtn" onclick="clearSearch()">Clear Search</button>
+                <button id="refreshBtn" onclick="loadVectors()">Refresh Vectors</button>
+                <button id="resetViewBtn" onclick="resetView()">Reset View</button>
+            </div>
+
+            <h3>System Stats</h3>
+            <div id="stats" class="stats">
+                <div>Loading...</div>
+            </div>
+        </section>
+
+        <section class="visualization-container">
+            <div class="visualization-header">
+                <h3>3D Vector Visualization</h3>
+            </div>
+            <div id="visualization" class="visualization"></div>
+            <div class="vector-details-container">
+                <div id="vectorDetails" class="results-content">
+                    <div class="vector-detail-item">
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="results-section">
+            <h3>Search Results</h3>
+            <div id="searchResults" class="results-content">
+                ...
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <a href="https://beauburrier.com">beauburrier.com</a>
+        <a class="github-link" href="https://github.com/bburrier/vector-database-exploration">
+            <img src="https://beauburrier.com/static/images/github-mark.png" alt="GitHub"/>
+        </a>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html> 
