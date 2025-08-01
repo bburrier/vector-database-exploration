@@ -17,7 +17,8 @@ help:
 	@echo "  make status - Show status of services"
 	@echo "  make stop   - Stop frontend and backend"
 	@echo "  make kill   - Kill any orphaned processes on ports"
-	@echo "  make logs   - Show logs\n"
+	@echo "  make logs   - Show logs"
+	@echo "  make test   - Run unit tests\n"
 
 setup:
 	@echo "Setting up virtual environment..."
@@ -98,5 +99,16 @@ clean:
 	@echo "Cleaning up..."
 	@make stop
 	@rm -rf $(VENV)
-	@rm -f $(BACKEND_PID) $(FRONTEND_PID)
-	@echo "Cleanup complete" 
+	@rm -rf htmlcov
+	@rm -f .coverage
+
+test:
+	@if [ ! -d "$(VENV)" ]; then \
+		echo "Virtual environment not found. Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@echo "Installing test dependencies..."
+	@$(PIP) install -r requirements-test.txt
+	@echo "Running tests..."
+	@$(PYTHON) -m pytest tests/ -v --tb=short
+	@echo "Tests completed!" 
