@@ -157,7 +157,6 @@ button {
 .visualization {
     width: 100%;
     height: 500px;
-    background-color: #FFF;
     border-radius: 4px;
     position: relative;
     overflow: hidden;
@@ -191,10 +190,16 @@ button {
 /* Search Results */
 .search-result-item {
     border: 1px solid #CCC;
-    border-left: 4px solid #c4dfa5;
+    border-left: 4px solid #a6cee3;
     border-radius: 4px;
     padding: 1rem;
     margin-bottom: 1rem;
+    transition: background-color 0.2s ease;
+}
+
+.search-result-item:hover {
+    background-color: #f5f5f5;
+    cursor: default;
 }
 
 .search-result-item:last-child {
@@ -277,9 +282,9 @@ button {
 
 /* Vector Details */
 .vector-details-container {
-    background-color: #f9f9f9;
-    border-top: 1px solid #ddd;
-    padding: 0.75rem;
+    background-color: #EFEFEF;
+    border-top: 1px dashed #AAA;
+    padding: 1rem 0.5rem;
     min-height: 2.5rem;
 }
 
@@ -291,6 +296,7 @@ button {
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
+    padding: 0 0.5rem;
 }
 
 .vector-detail-item:last-child {
@@ -302,11 +308,11 @@ button {
 }
 
 a.vector-delete-link {
-    color: #cc0077;
+    color: #bb0077;
     text-decoration: none;
     font-size: 0.8rem;
-    margin-left: 0.5rem;
     flex-shrink: 0;
+    padding-right: 0.5rem;
 }
 
 .vector-detail-empty {
@@ -441,6 +447,8 @@ pre {
         grid-template-columns: unset;
         justify-items: stretch;
         padding: 1rem 1rem 8rem 1rem;
+        max-width: 800px;
+        margin: 0 auto;
     }
     
     .control-panel {
@@ -449,12 +457,13 @@ pre {
     }
 
     .input-group input {
-        width: 75%;
+        width: 80%;
     }
     
     .visualization-container {
         order: 1;
         width: unset;
+        max-height: unset;
     }
     
     .results-section {
@@ -469,14 +478,18 @@ pre {
         grid-template-columns: unset;
         justify-items: stretch;
         padding: 0.75rem 0.75rem 8rem 0.75rem;
+        margin: 0 auto;
     }
 
     .input-group input {
         width: 70%;
     }
+
+    .visualization-container {
+        width: unset;
+    }
     
     .control-panel,
-    .visualization-container,
     .results-section {
         padding: 1rem;
         width: unset;
@@ -506,8 +519,8 @@ pre {
     }
 
     .vector-details-container {
-        background-color: #f9f9f9;
-        border-top: 1px solid #ddd;
+        background-color: #EFEFEF;
+        border-top: 1px dashed #AAA;
         min-height: 2.5rem;
         width: 100%;
         overflow-y: scroll;
@@ -523,12 +536,10 @@ pre {
     
     /* Improve touch targets for mobile */
     .vector-delete-link {
-        padding: 0.5rem 0.75rem;
-        margin-left: 0.75rem;
-        min-height: 44px;
         display: inline-flex;
         align-items: center;
         justify-content: center;
+        margin-top: 0.25rem;
     }
     
     .vector-detail-item {

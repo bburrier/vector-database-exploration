@@ -29,6 +29,16 @@ app.add_middleware(
 # Initialize the vector database with sentence-transformers
 vector_db = SimpleVectorDB(dimension=3, storage_file="vector_db.json", model_name="all-MiniLM-L6-v2")
 
+# Ensure existing vectors are in 3D format
+if vector_db.vectors:
+    # Check if any existing vectors are not 3D
+    sample_vector = next(iter(vector_db.vectors.values()))
+    if len(sample_vector) != 3:
+        print(f"Found {len(vector_db.vectors)} vectors in {len(sample_vector)}D format, regenerating in 3D...")
+        vector_db.regenerate_all_embeddings()
+    else:
+        print(f"All {len(vector_db.vectors)} vectors are already in 3D format")
+
 # Pydantic models for request/response
 class VectorRequest(BaseModel):
     text: str

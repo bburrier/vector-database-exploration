@@ -8,26 +8,93 @@ let labels = [];
 let pointMeshes = []; // Separate array for actual point meshes (for raycaster)
 let highlightedPoints = new Set();
 let dataBounds = { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } };
-let currentDimension = 3;
+let visualizationMode = 3; // Frontend visualization mode (3D or 20D) - ALWAYS start with 3D
 let radarChart = null;
+let interactiveObjects = []; // Global array for all interactive 3D objects
 
 // Default camera position constant
-const DEFAULT_CAMERA_POSITION = [1.6, 0.1, 2.9];
+const DEFAULT_CAMERA_POSITION = [1.4, 0.1, 2.6];
 
 // API base URL - automatically detect environment
 // If accessed via ngrok (HTTPS), use relative paths
 // If accessed via localhost:3000 (development), use backend URL
 const API_BASE = window.location.protocol === 'https:' ? '/api' : 'http://localhost:8000/api';
 
+// Force 3D mode function
+function force3DMode() {
+    visualizationMode = 3;
+    const dimensionToggle = document.getElementById('dimensionToggle');
+    if (dimensionToggle) {
+        dimensionToggle.value = '3';
+        dimensionToggle.selectedIndex = 0;
+    }
+}
+
+function force20DMode() {
+    visualizationMode = 20;
+    const dimensionToggle = document.getElementById('dimensionToggle');
+    if (dimensionToggle) {
+        dimensionToggle.value = '20';
+        dimensionToggle.selectedIndex = 1;
+    }
+}
+
+// Handle window resize
+function handleWindowResize() {
+    // Debounce the resize event to avoid excessive redraws
+    clearTimeout(window.resizeTimeout);
+    window.resizeTimeout = setTimeout(() => {
+        if (visualizationMode === 3) {
+            // For 3D, update camera and renderer
+            if (camera && renderer) {
+                const container = document.getElementById('visualization');
+                const width = container.clientWidth;
+                const height = container.clientHeight;
+                
+                camera.aspect = width / height;
+                camera.updateProjectionMatrix();
+                renderer.setSize(width, height);
+            }
+        } else {
+            // For 20D, redraw the radar chart
+            showRadarChart();
+        }
+    }, 250); // 250ms debounce
+}
+
 // Initialize the application
-document.addEventListener('DOMContentLoaded', function() {
-    // Ensure we start with 3D visualization
-    currentDimension = 3;
-    document.getElementById('dimensionToggle').value = '3';
+document.addEventListener('DOMContentLoaded', async function() {
+    // Start with 20D visualization - force it
+    force20DMode();
     
+    // Ensure backend is also in 20D mode
+    try {
+        const response = await fetch(`${API_BASE}/change-dimension`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ dimension: 20 })
+        });
+        
+        const data = await response.json();
+        if (!data.success) {
+            console.error('Failed to set backend to 20D mode:', data.error);
+        }
+    } catch (error) {
+        console.error('Error setting backend to 20D mode:', error);
+    }
+    
+    // Initialize visualization first
     initializeVisualization();
-    loadVectors();
-    loadStats();
+    
+    // Load vectors in 20D format initially
+    await loadVectors();
+    await loadStats();
+    
+    // Set search query to "swimming" and perform search
+    document.getElementById('searchQuery').value = 'swimming';
+    await searchVectors();
     
     // Add event listeners for Enter key
     document.getElementById('newText').addEventListener('keypress', function(e) {
@@ -37,57 +104,102 @@ document.addEventListener('DOMContentLoaded', function() {
     document.getElementById('searchQuery').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') searchVectors();
     });
+    
+    // Add event listener for dimension toggle (after initialization)
+    document.getElementById('dimensionToggle').addEventListener('change', changeDimension);
+    
+    // Add window resize event listener
+    window.addEventListener('resize', handleWindowResize);
 });
 
 // Change visualization dimension
 async function changeDimension() {
-    const newDimension = parseInt(document.getElementById('dimensionToggle').value);
+    const newMode = parseInt(document.getElementById('dimensionToggle').value);
     
-    if (newDimension === currentDimension) {
+    if (newMode === visualizationMode) {
         return; // No change needed
     }
     
-    try {
-        const response = await fetch(`${API_BASE}/change-dimension`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ dimension: newDimension })
-        });
-        
-        const data = await response.json();
-        
-        if (data.success) {
-            currentDimension = newDimension;
+    // Update frontend visualization mode
+    visualizationMode = newMode;
+    
+    // Only call backend if switching to 20D (backend should stay in 3D by default)
+    if (newMode === 20) {
+        try {
+            const response = await fetch(`${API_BASE}/change-dimension`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ dimension: 20 })
+            });
             
-            // Reload vectors with new dimension
-            await loadVectors();
+            const data = await response.json();
             
-            // Update visualization based on new dimension
-            if (currentDimension === 3) {
-                show3DVisualization();
-            } else {
-                showRadarChart();
+            if (!data.success) {
+                console.error('Failed to change backend dimension:', data.error);
+                // Revert frontend mode if backend change failed
+                visualizationMode = 3;
+                document.getElementById('dimensionToggle').value = '3';
+                return;
             }
+        } catch (error) {
+            console.error('Error changing backend dimension:', error);
+            // Revert frontend mode if backend change failed
+            visualizationMode = 3;
+            document.getElementById('dimensionToggle').value = '3';
+            return;
+        }
+    } else if (newMode === 3) {
+        // If switching back to 3D, ensure backend is also in 3D
+        try {
+            const response = await fetch(`${API_BASE}/change-dimension`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ dimension: 3 })
+            });
             
-            // Re-trigger search if there's an active search
+            const data = await response.json();
+            
+            if (!data.success) {
+                console.error('Failed to change backend dimension:', data.error);
+                // Revert frontend mode if backend change failed
+                visualizationMode = 20;
+                document.getElementById('dimensionToggle').value = '20';
+                return;
+            }
+        } catch (error) {
+            console.error('Error changing backend dimension:', error);
+            // Revert frontend mode if backend change failed
+            visualizationMode = 20;
+            document.getElementById('dimensionToggle').value = '20';
+            return;
+        }
+    }
+    
+    // Add a delay to ensure backend has finished regenerating embeddings
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Reload vectors with new dimension
+    await loadVectors();
+    
+    // Update visualization based on new mode
+    if (visualizationMode === 3) {
+        show3DVisualization();
+    } else {
+        showRadarChart();
+    }
+    
+                // Re-trigger search if there's an active search
             const searchQuery = document.getElementById('searchQuery').value.trim();
             if (searchQuery && searchResults.length > 0) {
-                console.log('Re-triggering search with new dimension...');
                 await searchVectors();
             }
-            
-            // Update stats
+    
+                // Update stats
             await loadStats();
-            
-            console.log(`Dimension changed to ${newDimension}`);
-        } else {
-            console.error('Failed to change dimension:', data.error);
-        }
-    } catch (error) {
-        console.error('Error changing dimension:', error);
-    }
 }
 
 // Initialize Three.js 3D visualization
@@ -101,7 +213,7 @@ function initializeVisualization() {
     
     // Create scene
     scene = new THREE.Scene();
-    scene.background = new THREE.Color(0xffffff);
+    scene.background = new THREE.Color(0xEFEFEF);
     
     // Create camera
     camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000);
@@ -196,8 +308,7 @@ function calculateDataBounds() {
     dataBounds.max.y += yRange * padding;
     dataBounds.max.z += zRange * padding;
     
-    // Debug: log the calculated bounds
-    console.log('Data bounds calculated:', dataBounds);
+
 }
 
 // Normalize a value to -1 to 1 range based on data bounds
@@ -235,6 +346,12 @@ function addGridLines() {
 
 // Update bounding cube based on current data bounds
 function updateBoundingCube() {
+    // Safety check: ensure scene exists
+    if (!scene) {
+        console.warn('Scene not initialized, skipping bounding cube update');
+        return;
+    }
+    
     // Remove existing cube
     scene.children = scene.children.filter(child => 
         !(child instanceof THREE.Mesh && child.geometry instanceof THREE.BoxGeometry)
@@ -308,6 +425,22 @@ function addTextLabel(vector, x, y, z) {
     const text = vector.text.substring(0, 15) + (vector.text.length > 15 ? '...' : '');
     context.fillText(text, canvas.width / 2, canvas.height / 2);
     
+    // Add underline if vector is highlighted (hover focus only)
+    if (vector.isHighlighted) {
+        context.strokeStyle = '#000000';
+        context.lineWidth = 8; // 3x larger (2.67 * 3 ≈ 8)
+        const textMetrics = context.measureText(text);
+        const textWidth = textMetrics.width;
+        const textHeight = 72; // Approximate height for Arial font
+        const underlineY = canvas.height / 2 + textHeight / 2 + 10; // Position below text
+        const underlineX = canvas.width / 2 - textWidth / 2;
+        
+        context.beginPath();
+        context.moveTo(underlineX, underlineY);
+        context.lineTo(underlineX + textWidth, underlineY);
+        context.stroke();
+    }
+    
     // Create texture from canvas
     const texture = new THREE.CanvasTexture(canvas);
     
@@ -320,9 +453,16 @@ function addTextLabel(vector, x, y, z) {
     
     // Create sprite (always faces camera)
     const sprite = new THREE.Sprite(spriteMaterial);
-    sprite.position.set(x + 0.3, y + 0.3, z + 0.3); // Offset further from point to avoid overlap
+    sprite.position.set(x + 0.15, y + 0.15, z + 0.15); // Reduced offset to bring labels closer
     sprite.scale.set(1.5, 0.375, 1); // 3x larger scale
     // Sprites automatically face the camera by default
+    
+    // Store vector data for interaction
+    sprite.userData = {
+        vector: vector,
+        vectorId: vector.id,
+        isLabel: true
+    };
     
     // Add to scene and labels array
     scene.add(sprite);
@@ -349,7 +489,7 @@ async function loadVectors() {
         }));
         
         // Update visualization based on current mode
-        if (currentDimension === 3) {
+        if (visualizationMode === 3) {
             updateVisualization();
         } else {
             showRadarChart();
@@ -405,6 +545,16 @@ function createRadarChart(svg, radius) {
     // Get the number of dimensions from the first vector
     const numDimensions = allVectors[0].vector.length;
     
+    // Validate that vectors have the expected number of dimensions
+    if (visualizationMode === 20 && numDimensions !== 20) {
+        console.error(`Expected 20D vectors but got ${numDimensions}D. Backend may not have finished regenerating embeddings.`);
+        return;
+    }
+    if (visualizationMode === 3 && numDimensions !== 3) {
+        console.error(`Expected 3D vectors but got ${numDimensions}D. Backend may not have finished regenerating embeddings.`);
+        return;
+    }
+    
     // Create angle scale
     const angleScale = d3.scalePoint()
         .domain(d3.range(numDimensions))
@@ -457,17 +607,35 @@ function createRadarChart(svg, radius) {
         
         // Add dimension label
         svg.append('text')
-            .attr('x', Math.cos(angle - Math.PI/2) * (radius + 20))
-            .attr('y', Math.sin(angle - Math.PI/2) * (radius + 20))
+            .attr('x', Math.cos(angle - Math.PI/2) * (radius + 11))
+            .attr('y', Math.sin(angle - Math.PI/2) * (radius + 11))
             .attr('text-anchor', 'middle')
             .attr('dominant-baseline', 'middle')
-            .attr('font-size', '12px')
+            .attr('font-size', '10px')
             .attr('fill', '#666')
             .text(`D${i+1}`);
     }
     
-    // Draw vector polygons
-    allVectors.forEach((vector, index) => {
+    // Filter out vectors with invalid data before creating polygons
+    const validVectors = allVectors.filter(vector => {
+        for (let i = 0; i < numDimensions; i++) {
+            const value = vector.vector[i];
+            if (isNaN(value) || !isFinite(value)) {
+                console.error(`Skipping vector ${vector.id} - invalid value at dimension ${i}: ${value}`);
+                return false;
+            }
+        }
+        return true;
+    });
+    
+    // If no valid vectors, don't create the chart
+    if (validVectors.length === 0) {
+        console.error('No valid vectors found for radar chart');
+        return;
+    }
+    
+    // Draw vector polygons only for valid vectors
+    validVectors.forEach((vector, index) => {
         const points = [];
         for (let i = 0; i < numDimensions; i++) {
             const angle = angleScale(i);
@@ -478,37 +646,121 @@ function createRadarChart(svg, radius) {
             points.push([x, y]);
         }
         
+        // Determine color based on vector type
+        let fillColor, strokeColor;
+        if (vector.isQueryVector) {
+            fillColor = '#a081d9';
+            strokeColor = '#a081d9';
+        } else if (vector.isHighlighted || vector.isSearchResult) {
+            fillColor = '#a6cee3';
+            strokeColor = '#a6cee3';
+        } else {
+            fillColor = '#000';
+            strokeColor = '#000';
+        }
+        
         // Create polygon
         const polygon = svg.append('polygon')
             .attr('points', points.map(p => p.join(',')).join(' '))
-            .attr('fill', vector.isQueryVector ? '#a081d9' : '#000')
-            .attr('stroke', vector.isQueryVector ? '#a081d9' : '#000')
+            .attr('fill', fillColor)
+            .attr('stroke', strokeColor)
             .attr('stroke-width', 2)
-            .attr('fill-opacity', vector.isQueryVector ? 0.3 : 0.1)
-            .attr('stroke-opacity', 0.8);
+            .attr('fill-opacity', vector.isQueryVector ? 0.3 : (vector.isHighlighted || vector.isSearchResult) ? 0.4 : 0.1)
+            .attr('stroke-opacity', 0.8)
+            .attr('data-vector-id', vector.id)
+            .attr('data-is-query', vector.isQueryVector ? 'true' : 'false')
+            .attr('data-is-highlighted', vector.isHighlighted ? 'true' : 'false')
+            .attr('data-is-search-result', vector.isSearchResult ? 'true' : 'false');
         
         // Add hover effects
         polygon.on('mouseover', function() {
-            d3.select(this).attr('fill-opacity', 0.5);
+            d3.select(this).attr('fill-opacity', 0.6);
             showVectorDetails(null, vector);
+            highlightMatchingVector(vector.id);
         })
         .on('mouseout', function() {
-            d3.select(this).attr('fill-opacity', vector.isQueryVector ? 0.3 : 0.1);
+            const currentOpacity = vector.isQueryVector ? 0.3 : (vector.isHighlighted || vector.isSearchResult) ? 0.4 : 0.1;
+            d3.select(this).attr('fill-opacity', currentOpacity);
+            clearHighlight();
         });
         
-        // Add vector label if it's query vector or highlighted
-        if (vector.isQueryVector || vector.isHighlighted) {
-            const centroid = calculatePolygonCentroid(points);
-            svg.append('text')
-                .attr('x', centroid[0])
-                .attr('y', centroid[1])
-                .attr('text-anchor', 'middle')
-                .attr('dominant-baseline', 'middle')
-                .attr('font-size', '10px')
-                .attr('fill', vector.isQueryVector ? '#a081d9' : '#22bb11')
-                .text(vector.text.substring(0, 15));
-        }
+        // Add vector label for all vectors
+        const centroid = calculatePolygonCentroid(points);
+        // Position text near the outer edge of the radar chart
+        const textRadius = radius + 30;
+        const textAngle = Math.atan2(centroid[1], centroid[0]);
+        
+        // Calculate initial position
+        let textX = Math.cos(textAngle) * textRadius;
+        let textY = Math.sin(textAngle) * textRadius;
+        
+        // Adjust position to avoid overlapping with existing labels
+        const adjustedPosition = adjustLabelPosition(textX, textY, vector.text.substring(0, 20), svg);
+        textX = adjustedPosition.x;
+        textY = adjustedPosition.y;
+        
+        const label = svg.append('text')
+            .attr('x', textX)
+            .attr('y', textY)
+            .attr('text-anchor', 'middle')
+            .attr('dominant-baseline', 'middle')
+            .attr('font-size', '12px')
+            .attr('fill', '#000')
+            .attr('font-weight', '400')
+            .attr('cursor', 'pointer')
+            .attr('data-vector-id', vector.id)
+            .attr('text-decoration', 'none')
+            .text(vector.text.substring(0, 20));
+        
+        // Add mouseover event to label
+        label.on('mouseover', function() {
+            showVectorDetails(null, vector);
+            highlightMatchingVector(vector.id);
+        })
+        .on('mouseout', function() {
+            clearHighlight();
+        });
     });
+}
+
+// Adjust label position to avoid overlapping with existing labels
+function adjustLabelPosition(x, y, text, svg) {
+    const existingLabels = svg.selectAll('text[data-vector-id]');
+    const labelWidth = text.length * 6; // Approximate width based on character count
+    const labelHeight = 12; // Font size
+    const minDistance = Math.max(labelWidth, labelHeight) + 5; // Minimum distance between labels
+    
+    let adjustedX = x;
+    let adjustedY = y;
+    let attempts = 0;
+    const maxAttempts = 8;
+    
+    // Check for overlaps with existing labels
+    let hasOverlap = true;
+    while (hasOverlap && attempts < maxAttempts) {
+        hasOverlap = false;
+        
+        existingLabels.each(function() {
+            const existingLabel = d3.select(this);
+            const existingX = parseFloat(existingLabel.attr('x'));
+            const existingY = parseFloat(existingLabel.attr('y'));
+            
+            const distance = Math.sqrt(Math.pow(adjustedX - existingX, 2) + Math.pow(adjustedY - existingY, 2));
+            
+            if (distance < minDistance) {
+                hasOverlap = true;
+                // Move the label in a spiral pattern to find a new position
+                const angle = (attempts * Math.PI / 4) + Math.atan2(adjustedY - y, adjustedX - x);
+                const radius = 15 + (attempts * 5);
+                adjustedX = x + Math.cos(angle) * radius;
+                adjustedY = y + Math.sin(angle) * radius;
+            }
+        });
+        
+        attempts++;
+    }
+    
+    return { x: adjustedX, y: adjustedY };
 }
 
 // Calculate centroid of polygon
@@ -521,7 +773,7 @@ function calculatePolygonCentroid(points) {
 // Update the 3D visualization
 function updateVisualization() {
     // If we're in radar chart mode, don't update 3D
-    if (currentDimension !== 3) {
+    if (visualizationMode !== 3) {
         return;
     }
     
@@ -552,10 +804,10 @@ function updateVisualization() {
     
     allVectors.forEach((vector, index) => {
         // Create geometry for the point
-        const geometry = new THREE.SphereGeometry(0.08, 8, 8);
+        const geometry = new THREE.SphereGeometry(0.05, 8, 8);
         
         // Create material
-        const material = new THREE.MeshLambertMaterial({ 
+        const material = new THREE.MeshBasicMaterial({ 
             color: 0x000000, // Always black
             transparent: true,
             opacity: 0.8
@@ -573,6 +825,7 @@ function updateVisualization() {
         // Store vector data for interaction
         point.userData = {
             vector: vector,
+            vectorId: vector.id,
             index: index
         };
         
@@ -581,25 +834,42 @@ function updateVisualization() {
         points.push(point);
         pointMeshes.push(point); // Add to pointMeshes for raycaster
         
-        // Add glow for highlighted points
-        if (vector.isHighlighted) {
+        // Add glow for search result points and query vector
+        if (vector.isSearchResult || vector.isQueryVector) {
             const glowSize = vector.isQueryVector ? 0.25 : 0.15; // Larger glow for query vector
             const glowGeometry = new THREE.SphereGeometry(glowSize, 8, 8);
             const glowMaterial = new THREE.MeshBasicMaterial({ 
-                color: vector.isQueryVector ? 0xa081d9 : 0x22bb11,
+                color: vector.isQueryVector ? 0xa081d9 : 0xa6cee3,
                 transparent: true, 
                 opacity: 0.3
             });
             const glow = new THREE.Mesh(glowGeometry, glowMaterial);
             glow.position.set(x, y, z);
+            glow.userData = {
+                vector: vector,
+                vectorId: vector.id,
+                isGlow: true,
+                originalOpacity: 0.3,
+                originalScale: glowSize
+            };
             scene.add(glow);
             points.push(glow); // Add to points array so it gets cleared on update
+            interactiveObjects.push(glow); // Add to interactive objects for mouseover
         }
         
         // Add text label (only for first 10 points to avoid clutter, or for query vector, or highlighted points)
         if (index < 10 || vector.isQueryVector || vector.isHighlighted) {
             addTextLabel(vector, x, y, z);
         }
+    });
+    
+    // Clear and reinitialize interactive objects array
+    interactiveObjects.length = 0;
+    interactiveObjects.push(...pointMeshes);
+    
+    // Add labels to interactive objects
+    labels.forEach(label => {
+        interactiveObjects.push(label);
     });
     
     // Add raycaster for mouse and touch interaction
@@ -623,21 +893,23 @@ function updateVisualization() {
         mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
         
         raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(pointMeshes);
+        const intersects = raycaster.intersectObjects(interactiveObjects);
         
         if (intersects.length > 0) {
             const point = intersects[0].object;
             const vector = point.userData.vector;
             lastIntersectedPoint = point;
             showVectorDetails(event, vector);
+            highlightMatchingVector(vector.id);
         } else {
             lastIntersectedPoint = null;
+            clearHighlight();
         }
     }
     
     function onMouseClick(event) {
         raycaster.setFromCamera(mouse, camera);
-        const intersects = raycaster.intersectObjects(pointMeshes);
+        const intersects = raycaster.intersectObjects(interactiveObjects);
         
         if (intersects.length > 0) {
             const point = intersects[0].object;
@@ -656,7 +928,7 @@ function updateVisualization() {
             mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
             
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(pointMeshes);
+            const intersects = raycaster.intersectObjects(interactiveObjects);
             
             if (intersects.length > 0) {
                 const point = intersects[0].object;
@@ -679,7 +951,7 @@ function updateVisualization() {
             mouse.y = -((touch.clientY - rect.top) / rect.height) * 2 + 1;
             
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects(pointMeshes);
+            const intersects = raycaster.intersectObjects(interactiveObjects);
             
             if (intersects.length > 0) {
                 const point = intersects[0].object;
@@ -714,6 +986,193 @@ function updateVisualization() {
 }
 
 
+
+// Show vector details from ID
+function showVectorDetailsFromId(vectorId) {
+    const vector = vectors.find(v => v.id === vectorId);
+    if (vector) {
+        showVectorDetails(null, vector);
+        highlightMatchingVector(vectorId);
+    }
+}
+
+// Highlight matching vector in visualization
+function highlightMatchingVector(vectorId) {
+
+    
+    if (visualizationMode === 3) {
+        // Clear previous hover highlights (but keep search result highlights)
+        // Reset glow spheres to their original state
+        points.forEach(point => {
+            if (point.userData && point.userData.isGlow) {
+                const vector = point.userData.vector;
+                // Only reset if it's not a search result or query vector (keep those highlighted)
+                if (!vector.isSearchResult && !vector.isQueryVector) {
+                    point.material.opacity = point.userData.originalOpacity;
+                    point.material.needsUpdate = true;
+                    point.scale.set(1.0, 1.0, 1.0); // Restore original scale
+                }
+            }
+        });
+        
+        // Remove all label underlines by recreating them without underlines
+        labels.forEach((label, index) => {
+            if (label.userData && label.userData.vector) {
+                const vector = label.userData.vector;
+                // Recreate label without underline
+                const x = normalizeValue(vector.x, 'x');
+                const y = normalizeValue(vector.y, 'y');
+                const z = normalizeValue(vector.z, 'z');
+                
+                // Remove old label
+                scene.remove(label);
+                labels.splice(index, 1);
+                
+                // Add new label without underline
+                addTextLabel(vector, x, y, z);
+            }
+        });
+        
+        // Now highlight the new vector
+        // For 3D, find the glow sphere and make it more opaque and smaller
+        // Look through all points (including glow spheres) to find the matching one
+        const glowIndex = points.findIndex(point => 
+            point.userData && point.userData.vectorId === vectorId && 
+            point.userData.isGlow === true
+        );
+        
+        if (glowIndex !== -1) {
+            const glowMesh = points[glowIndex];
+            
+            // Make glow more opaque and smaller
+            glowMesh.material.opacity = 0.8; // Increase from 0.3 to 0.8
+            glowMesh.material.needsUpdate = true;
+            
+            // Make glow sphere smaller
+            glowMesh.scale.set(0.8, 0.8, 0.8); // Make it smaller
+        }
+        
+        // Update 3D label underline
+        const labelIndex = labels.findIndex(label => 
+            label.userData && label.userData.vectorId === vectorId
+        );
+        
+        if (labelIndex !== -1) {
+            const label = labels[labelIndex];
+            const vector = label.userData.vector;
+            
+            // Temporarily mark vector as highlighted to create underlined version
+            const wasHighlighted = vector.isHighlighted;
+            vector.isHighlighted = true;
+            
+            // Recreate the label with underline
+            const x = normalizeValue(vector.x, 'x');
+            const y = normalizeValue(vector.y, 'y');
+            const z = normalizeValue(vector.z, 'z');
+            
+            // Remove old label
+            scene.remove(label);
+            labels.splice(labelIndex, 1);
+            
+            // Add new label with underline
+            addTextLabel(vector, x, y, z);
+            
+            // Restore original state
+            vector.isHighlighted = wasHighlighted;
+        }
+    } else {
+        // For 20D radar chart, update the polygon opacity and label underline
+        const svg = d3.select('#visualization svg g');
+        const polygons = svg.selectAll('polygon');
+        polygons.each(function(d, i) {
+            const polygon = d3.select(this);
+            if (polygon.attr('data-vector-id') === vectorId) {
+                polygon.attr('fill-opacity', 0.8);
+            }
+        });
+        
+        // Update label underline
+        const labels = svg.selectAll('text');
+        labels.each(function() {
+            const label = d3.select(this);
+            if (label.attr('data-vector-id') === vectorId) {
+                label.attr('text-decoration', 'underline');
+            }
+        });
+    }
+}
+
+// Clear highlight from all vectors
+function clearHighlight() {
+    
+    if (visualizationMode === 3) {
+        // Reset opacity and scale for all 3D points and glow spheres
+        pointMeshes.forEach(mesh => {
+            mesh.material.opacity = 0.8; // Restore original opacity
+            mesh.material.color.setHex(0x000000); // Restore original black color
+            mesh.material.needsUpdate = true;
+            mesh.scale.set(1.0, 1.0, 1.0); // Restore original scale
+        });
+        
+        // Reset glow spheres (but keep search result and query vector highlights)
+        points.forEach(point => {
+            if (point.userData && point.userData.isGlow) {
+                const vector = point.userData.vector;
+                // Only reset if it's not a search result or query vector
+                if (!vector.isSearchResult && !vector.isQueryVector) {
+                    point.material.opacity = point.userData.originalOpacity;
+                    point.material.needsUpdate = true;
+                    point.scale.set(1.0, 1.0, 1.0); // Restore original scale
+                }
+            }
+        });
+        
+        // Reset 3D label underlines - remove all underlines
+        labels.forEach((label, index) => {
+            if (label.userData && label.userData.vector) {
+                const vector = label.userData.vector;
+                
+                // Only recreate if currently has underline (isHighlighted)
+                if (vector.isHighlighted) {
+                    // Recreate label without underline
+                    const x = normalizeValue(vector.x, 'x');
+                    const y = normalizeValue(vector.y, 'y');
+                    const z = normalizeValue(vector.z, 'z');
+                    
+                    // Remove old label
+                    scene.remove(label);
+                    labels.splice(index, 1);
+                    
+                    // Add new label without underline
+                    addTextLabel(vector, x, y, z);
+                }
+            }
+        });
+    } else {
+        // Reset opacity for all radar chart polygons
+        const svg = d3.select('#visualization svg g');
+        const polygons = svg.selectAll('polygon');
+        polygons.each(function() {
+            const polygon = d3.select(this);
+            const isQueryVector = polygon.attr('data-is-query') === 'true';
+            const isHighlighted = polygon.attr('data-is-highlighted') === 'true';
+            const isSearchResult = polygon.attr('data-is-search-result') === 'true';
+            
+            let opacity = 0.1;
+            if (isQueryVector) opacity = 0.3;
+            else if (isHighlighted || isSearchResult) opacity = 0.4;
+            
+            polygon.attr('fill-opacity', opacity);
+        });
+        
+        // Reset text decoration for all labels - remove all underlines
+        const labels = svg.selectAll('text');
+        labels.each(function() {
+            const label = d3.select(this);
+            label.attr('text-decoration', 'none');
+        });
+    }
+}
 
 // Show vector details in panel on hover/touch
 function showVectorDetails(event, d) {
@@ -758,13 +1217,15 @@ async function deleteVector(vectorId) {
             // Clear vector details panel
             document.getElementById('vectorDetails').innerHTML = '';
             
-            // Update visualization
-            updateVisualization();
+            // Update visualization based on current mode
+            if (visualizationMode === 3) {
+                updateVisualization();
+            } else {
+                showRadarChart();
+            }
             
             // Update stats
             await loadStats();
-            
-            console.log('Vector deleted successfully');
         } else {
             console.error('Failed to delete vector:', data.error);
         }
@@ -859,7 +1320,7 @@ async function addVector() {
             highlightedPoints.add(newVector.id);
             
             // Update visualization based on current mode
-            if (currentDimension === 3) {
+            if (visualizationMode === 3) {
                 updateVisualization();
             } else {
                 showRadarChart();
@@ -908,7 +1369,7 @@ async function searchVectors() {
             vector: embeddingData.embedding,
             text: query,
             isQueryVector: true,
-            isHighlighted: true // Highlight the query vector
+            isHighlighted: false // Don't highlight the query vector initially (only on hover)
         };
         
         // Search for similar vectors
@@ -939,18 +1400,21 @@ async function searchVectors() {
 
 // Update visualization with search results
 function updateVisualizationWithSearch() {
-    // Mark search result nodes as highlighted
+    // Mark search result nodes for visual highlighting
     vectors.forEach(vector => {
         vector.isSearchResult = searchResults.some(result => result.id === vector.id);
-        // Mark search results as highlighted
+        // Add search results to highlighted points set for visual highlighting
         if (vector.isSearchResult) {
-            vector.isHighlighted = true;
             highlightedPoints.add(vector.id);
+        }
+        // Ensure isHighlighted is false for search results (only for hover focus)
+        if (vector.isSearchResult) {
+            vector.isHighlighted = false;
         }
     });
     
     // Update visualization based on current mode
-    if (currentDimension === 3) {
+    if (visualizationMode === 3) {
         updateVisualization();
     } else {
         showRadarChart();
@@ -1030,7 +1494,7 @@ function displaySearchResults(data) {
         }
         
         return `
-            <div class="search-result-item">
+            <div class="search-result-item" onmouseover="showVectorDetailsFromId('${result.id}')" onmouseout="clearHighlight()">
                 <div class="result-title">${result.text.substring(0, 50)}${result.text.length > 50 ? '...' : ''}</div>
                 <div class="result-similarity">Similarity: ${(result.similarity * 100).toFixed(1)}%</div>
                 <div class="result-text"><strong>Text:</strong> ${result.text}</div>
@@ -1065,7 +1529,7 @@ function clearSearch() {
     });
     
     // Update visualization based on current mode
-    if (currentDimension === 3) {
+    if (visualizationMode === 3) {
         updateVisualization();
     } else {
         showRadarChart();
